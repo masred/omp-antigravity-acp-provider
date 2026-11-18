@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
-import { HistorySeedError, HistorySeedGuard } from "../extension/runtime/history-seed.ts";
+import { DEFAULT_TIMEOUT_MS, HistorySeedError, HistorySeedGuard, resolveSeedTimeoutMs } from "../extension/runtime/history-seed.ts";
 import { AntigravityRuntime } from "../extension/runtime.mjs";
 
 const abortable = (signal: AbortSignal): Promise<never> => new Promise((_, reject) => {
@@ -14,6 +14,43 @@ test("an exact trimmed OK acknowledgement passes", () => {
 	guard.appendText("  OK\n");
 	assert.equal(guard.text, "  OK\n");
 	guard.assertAcknowledged();
+});
+
+test("resolveSeedTimeoutMs parses environment overrides and falls back to default", () => {
+	assert.equal(resolveSeedTimeoutMs({}), DEFAULT_TIMEOUT_MS);
+	assert.equal(resolveSeedTimeoutMs({ OMP_ACP_SEED_TIMEOUT_MS: "300000" }), 300_000);
+	assert.equal(resolveSeedTimeoutMs({ OMP_ACP_SEED_TIMEOUT_MS: "not-a-number" }), DEFAULT_TIMEOUT_MS);
+	assert.equal(resolveSeedTimeoutMs({ OMP_ACP_SEED_TIMEOUT_MS: "-50" }), DEFAULT_TIMEOUT_MS);
+	assert.equal(resolveSeedTimeoutMs({ OMP_ACP_SEED_TIMEOUT_MS: "0" }), DEFAULT_TIMEOUT_MS);
+});
+
+test("touch and text deltas reset the deadline timer during active generation", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	const guard = new HistorySeedGuard();
+	let aborted = false;
+	const pending = guard.run((signal) => {
+		signal.addEventListener("abort", () => { aborted = true; }, { once: true });
+		return abortable(signal);
+	});
+	// Advance near the deadline
+	t.mock.timers.tick(DEFAULT_TIMEOUT_MS - 1000);
+	assert.equal(aborted, false);
+	// Active progress arrives and resets deadline
+	guard.touch();
+	// Advance past the original deadline
+	t.mock.timers.tick(2000);
+	assert.equal(aborted, false);
+	// advance almost to the new deadline
+	t.mock.timers.tick(DEFAULT_TIMEOUT_MS - 2001);
+	assert.equal(aborted, false);
+	// text delta also resets deadline
+	guard.appendText("O");
+	t.mock.timers.tick(DEFAULT_TIMEOUT_MS - 1);
+	assert.equal(aborted, false);
+	t.mock.timers.tick(1);
+	await assert.rejects(pending, (error: unknown) =>
+		error instanceof HistorySeedError && /acknowledgement deadline/.test(error.message));
+	assert.equal(aborted, true);
 });
 
 test("anything but the exact OK is rejected with a compact-history hint", () => {
@@ -63,7 +100,7 @@ test("a step that never acknowledges hits the bounded production default deadlin
 		signal.addEventListener("abort", () => { aborted = true; }, { once: true });
 		return abortable(signal);
 	});
-	t.mock.timers.tick(59_999);
+	t.mock.timers.tick(DEFAULT_TIMEOUT_MS - 1);
 	assert.equal(aborted, false);
 	t.mock.timers.tick(1);
 	await assert.rejects(pending, (error: unknown) =>

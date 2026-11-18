@@ -60,7 +60,7 @@
     "test:tools": "node scripts/test-tool-set-sync.ts",
     "test:runtime-source": "node scripts/test-acp-runtime-source.ts",
     "test:managed": "bun scripts/test-managed-runtime.ts",
-    "test:close-session": "bun scripts/test-close-session.mjs",
+    "test:close-session": "node scripts/test-close-session.mjs",
     "probe:agy": "node scripts/probe-agy-limits.ts",
     "test:wire": "node scripts/test-wire-acp.ts",
     "test:wire-tools": "node scripts/test-wire-tools.ts",

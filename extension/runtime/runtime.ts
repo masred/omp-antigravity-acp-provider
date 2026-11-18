@@ -1938,6 +1938,7 @@ export class AntigravityRuntime {
 			// or text that will fail the exact OK check — ends it immediately.
 			const update = notification.update;
 			if (update.sessionUpdate === "agent_message_chunk" && update.content.type === "text") seedGuard.appendText(update.content.text);
+			else if (update.sessionUpdate === "agent_thought_chunk") seedGuard.touch();
 			else if (update.sessionUpdate === "tool_call" || update.sessionUpdate === "tool_call_update") seedGuard.rejectTool();
 		}
 		if ((notification.update.sessionUpdate === "config_option_update" || notification.update.sessionUpdate === "current_mode_update") &&

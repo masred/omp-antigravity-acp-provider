@@ -14,13 +14,22 @@
 
 const ACK = "OK";
 const TEXT_LIMIT = 4096;
-const DEFAULT_TIMEOUT_MS = 60_000;
+export const DEFAULT_TIMEOUT_MS = 180_000;
 const RETRY_HINT = "Compact OMP history before retrying.";
 const TOOL_REASON = `ACP history seed requested a tool or permission. ${RETRY_HINT}`;
 const ACK_REASON = `ACP history seed did not acknowledge with OK. ${RETRY_HINT}`;
 const DEADLINE_REASON = `ACP history seed exceeded its acknowledgement deadline. ${RETRY_HINT}`;
 const DISPOSED_REASON = `ACP history seed guard was disposed. ${RETRY_HINT}`;
 const STARTED_REASON = `ACP history seed step already started. ${RETRY_HINT}`;
+
+export function resolveSeedTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+	const raw = env.OMP_ACP_SEED_TIMEOUT_MS;
+	if (raw !== undefined) {
+		const parsed = Number(raw);
+		if (Number.isSafeInteger(parsed) && parsed > 0) return parsed;
+	}
+	return DEFAULT_TIMEOUT_MS;
+}
 
 export class HistorySeedError extends Error {
 	constructor(message: string, options?: ErrorOptions) {
@@ -41,7 +50,7 @@ export class HistorySeedGuard {
 	private used = false;
 	private disposed = false;
 
-	constructor(parent?: AbortSignal, timeoutMs = DEFAULT_TIMEOUT_MS) {
+	constructor(parent?: AbortSignal, timeoutMs = resolveSeedTimeoutMs()) {
 		this.parent = parent;
 		this.timeoutMs = timeoutMs;
 	}
@@ -51,8 +60,24 @@ export class HistorySeedGuard {
 		return this.buffer;
 	}
 
+	/**
+	 * Reset the deadline timer when progress (text delta, thought chunk) is observed.
+	 * Keeps active generation from timing out mid-stream.
+	 */
+	touch(): void {
+		if (this.disposed || this.failure || this.timer === undefined) return;
+		clearTimeout(this.timer);
+		const timer = setTimeout(() => {
+			this.timer = undefined;
+			this.fail(DEADLINE_REASON);
+		}, this.timeoutMs);
+		timer.unref?.();
+		this.timer = timer;
+	}
+
 	appendText(delta: string): void {
 		if (this.disposed || typeof delta !== "string" || delta.length === 0) return;
+		this.touch();
 		const room = TEXT_LIMIT - this.buffer.length;
 		if (room <= 0) return;
 		this.buffer += delta.length <= room ? delta : delta.slice(0, room);
