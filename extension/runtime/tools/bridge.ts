@@ -40,24 +40,44 @@ export function bridgeExecutionSchema(tool: ToolProjectionInput): unknown {
 	const properties = schema.properties;
 	const required = schema.required;
 	if (schema.type !== "object" || schema.additionalProperties !== false ||
-		properties === null || typeof properties !== "object" || Array.isArray(properties) ||
-		!Array.isArray(required) || !required.includes("i")) {
+		properties === null || typeof properties !== "object" || Array.isArray(properties)) {
 		return parameters;
 	}
-	const expectedKeys = tool.name === "context_notes" ? ["i", "text"] : ["i"];
-	if (Object.keys(properties).length !== expectedKeys.length ||
-		!expectedKeys.every(key => Object.hasOwn(properties, key))) {
+	if (Object.hasOwn(properties, "i")) {
+		const expectedKeys = tool.name === "context_notes" ? ["i", "text"] : ["i"];
+		if (Object.keys(properties).length !== expectedKeys.length ||
+			!expectedKeys.every(key => Object.hasOwn(properties, key))) {
+			return parameters;
+		}
+		const intent = Reflect.get(properties, "i");
+		const text = Reflect.get(properties, "text");
+		if (intent === null || typeof intent !== "object" || Array.isArray(intent) || Reflect.get(intent, "type") !== "string" ||
+			(tool.name === "context_notes" && (text === null || typeof text !== "object" || Array.isArray(text) || Reflect.get(text, "type") !== "string"))) {
+			return parameters;
+		}
+		// These two native tools receive OMP's injected intent as call metadata,
+		// not as an execute argument. Keep the property and supplied value intact.
+		return { ...schema, required: Array.isArray(required) ? required.filter(key => key !== "i") : [] };
+	}
+	const expectedKeysWithoutIntent = tool.name === "context_notes" ? ["text"] : [];
+	if (Object.keys(properties).length !== expectedKeysWithoutIntent.length ||
+		!expectedKeysWithoutIntent.every(key => Object.hasOwn(properties, key))) {
 		return parameters;
 	}
-	const intent = Reflect.get(properties, "i");
 	const text = Reflect.get(properties, "text");
-	if (intent === null || typeof intent !== "object" || Array.isArray(intent) || Reflect.get(intent, "type") !== "string" ||
-		(tool.name === "context_notes" && (text === null || typeof text !== "object" || Array.isArray(text) || Reflect.get(text, "type") !== "string"))) {
+	if (tool.name === "context_notes" && (text === null || typeof text !== "object" || Array.isArray(text) || Reflect.get(text, "type") !== "string")) {
 		return parameters;
 	}
-	// These two native tools receive OMP's injected intent as call metadata,
-	// not as an execute argument. Keep the property and supplied value intact.
-	return { ...schema, required: required.filter(key => key !== "i") };
+	// In OMP 19+, intent metadata is not part of the base parameter schema.
+	// Add the optional `i` metadata property so supplied intent is preserved.
+	return {
+		...schema,
+		properties: {
+			...properties,
+			i: { type: "string" },
+		},
+		required: Array.isArray(required) ? required.filter(key => key !== "i") : [],
+	};
 }
 
 interface BridgeTool {

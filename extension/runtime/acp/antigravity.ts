@@ -101,6 +101,22 @@ export function clearAntigravityLogoutMarker(directory = resolveAntigravityAcpDi
 	fs.rmSync(path.join(directory, ANTIGRAVITY_LOGOUT_MARKER), { force: true });
 }
 
+function extractRefreshToken(parsed: unknown): string | undefined {
+	if (!parsed || typeof parsed !== "object") return undefined;
+	const obj = parsed as Record<string, unknown>;
+	if (typeof obj.refresh_token === "string" && obj.refresh_token.length > 0) {
+		return obj.refresh_token;
+	}
+	const nested = obj.token;
+	if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+		const nestedObj = nested as Record<string, unknown>;
+		if (typeof nestedObj.refresh_token === "string" && nestedObj.refresh_token.length > 0) {
+			return nestedObj.refresh_token;
+		}
+	}
+	return undefined;
+}
+
 /** Structural local health only. A network probe is required to call an OAuth
  * token valid; secret values are never returned or logged. `env` is the
  * environment whose credentials are inspected, not necessarily this process's. */
@@ -108,9 +124,12 @@ export function inspectAntigravityAuth(
 	directory = resolveAntigravityAcpDirectory(),
 	env: NodeJS.ProcessEnv = process.env,
 ): AntigravityAuthHealth {
-	const tokenPath = path.join(directory, "acp_token.json");
+	const acpTokenPath = path.join(directory, "acp_token.json");
+	const oauthTokenPath = path.join(directory, "antigravity-oauth-token");
 	const settingsPath = path.join(directory, "settings.json");
-	const tokenFile = regularFile(tokenPath);
+	const hasAcpToken = regularFile(acpTokenPath);
+	const hasOauthToken = regularFile(oauthTokenPath);
+	const tokenFile = hasAcpToken || hasOauthToken;
 	const settingsFile = regularFile(settingsPath);
 	let authType: string | undefined;
 	let settingsCorrupt = false;
@@ -131,13 +150,24 @@ export function inspectAntigravityAuth(
 	// (including one this adapter never observed) is inspected normally.
 	if (!tokenFile && isAntigravityLoggedOut(directory)) return { status: "missing", tokenFile, settingsFile };
 	if (tokenFile) {
-		try {
-			const token = JSON.parse(fs.readFileSync(tokenPath, "utf8")) as { refresh_token?: unknown };
-			if (typeof token.refresh_token === "string" && token.refresh_token.length > 0) {
-				return { status: "oauth-refreshable", authType: authType ?? "oauth-personal", tokenFile, settingsFile };
+		const candidates = hasAcpToken ? [acpTokenPath, ...(hasOauthToken ? [oauthTokenPath] : [])] : [oauthTokenPath];
+		let anyCorrupt = false;
+		for (const candidatePath of candidates) {
+			try {
+				const token = JSON.parse(fs.readFileSync(candidatePath, "utf8")) as Record<string, unknown>;
+				const refreshToken = extractRefreshToken(token);
+				if (refreshToken) {
+					const detectedAuthType = token.auth_method === "consumer" ? "oauth-personal"
+						: typeof token.auth_method === "string" ? token.auth_method
+						: undefined;
+					return { status: "oauth-refreshable", authType: authType ?? detectedAuthType ?? "oauth-personal", tokenFile, settingsFile };
+				}
+				anyCorrupt = true;
+			} catch {
+				anyCorrupt = true;
 			}
-			return { status: "corrupt", ...(authType ? { authType } : {}), tokenFile, settingsFile };
-		} catch {
+		}
+		if (anyCorrupt) {
 			return { status: "corrupt", ...(authType ? { authType } : {}), tokenFile, settingsFile };
 		}
 	}

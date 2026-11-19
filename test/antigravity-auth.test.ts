@@ -152,3 +152,37 @@ test("Windows home variables and backslash prefixes resolve consistently", () =>
     path.join(home, "gemini", "antigravity-acp"),
   );
 });
+
+test("antigravity-oauth-token is recognized when acp_token.json is absent", async () => {
+  const directory = await fixture();
+  try {
+    const payload = {
+      auth_method: "consumer",
+      id_token_email: "test-user@example.com",
+      token: {
+        access_token: "test-access",
+        refresh_token: "test-refresh-token",
+        id_token: "header.eyJlbWFpbCI6InRlc3QtdXNlckBleGFtcGxlLmNvbSJ9.sig",
+      },
+    };
+    await fs.writeFile(path.join(directory, "antigravity-oauth-token"), JSON.stringify(payload));
+    const health = inspectAntigravityAuth(directory, {});
+    assert.equal(health.status, "oauth-refreshable");
+    assert.equal(health.authType, "oauth-personal");
+    assert.equal(health.tokenFile, true);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("a corrupt antigravity-oauth-token reports corrupt status", async () => {
+  const directory = await fixture();
+  try {
+    await fs.writeFile(path.join(directory, "antigravity-oauth-token"), "not-valid-json");
+    const health = inspectAntigravityAuth(directory, {});
+    assert.equal(health.status, "corrupt");
+    assert.equal(health.tokenFile, true);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});

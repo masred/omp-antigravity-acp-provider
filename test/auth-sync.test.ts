@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   MARKER,
   OmpAuthCoordinator,
+  antigravityAccountEmail,
   authReady,
   createKeychain,
   formatLogoutSummary,
@@ -1276,4 +1277,22 @@ test("a live login lock from another process blocks a second login", async () =>
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
+});
+
+test("antigravityAccountEmail extracts email from antigravity-oauth-token", async () => {
+  await withTempGeminiHome(async () => {
+    const acpDir = path.join(process.env.GEMINI_HOME!, "antigravity-acp");
+    await fs.mkdir(acpDir, { recursive: true });
+    const payload = {
+      auth_method: "consumer",
+      id_token_email: "direct-email@example.com",
+      token: {
+        access_token: "test",
+        refresh_token: "test-refresh",
+      },
+    };
+    await fs.writeFile(path.join(acpDir, "antigravity-oauth-token"), JSON.stringify(payload));
+    const email = await antigravityAccountEmail();
+    assert.equal(email, "direct-email@example.com");
+  });
 });

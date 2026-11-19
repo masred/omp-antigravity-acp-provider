@@ -7,6 +7,7 @@ export { AntigravityRuntime, PERMISSION_TOOL_NAME, PERMISSION_RESULT_KIND, authe
 export { MANAGED_AUTH_MARKER, usableApiKey } from "./constants.ts";
 export { loadConfig, savePermissionMode } from "./config.ts";
 export {
+  ANTIGRAVITY_LOGOUT_MARKER,
   inspectAntigravityAuth,
   hasAntigravityAuth,
   clearAntigravityCredentials,

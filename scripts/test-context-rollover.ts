@@ -174,8 +174,10 @@ try {
     assert.ok(projected?.inputSchema, `${hostTool.name} must have an observed MCP input schema`);
     const raw = projectToolSchema(hostTool.parameters);
     assert.ok("schema" in raw, `${hostTool.name}'s raw host declaration must be projectable`);
-    assert.ok(Array.isArray(raw.schema.required) && raw.schema.required.includes("i"),
-      `${hostTool.name}'s raw host declaration must retain OMP's required intent metadata`);
+    if (raw.schema.properties && Object.hasOwn(raw.schema.properties, "i")) {
+      assert.ok(Array.isArray(raw.schema.required) && raw.schema.required.includes("i"),
+        `${hostTool.name}'s raw host declaration must retain OMP's required intent metadata`);
+    }
     assert.ok(hostTool.executionSchema, `${hostTool.name}'s Bun witness must log the shared execution compatibility schema`);
     const expected = projectToolSchema(hostTool.executionSchema);
     assert.ok("schema" in expected, `${hostTool.name}'s execution compatibility schema must be projectable`);

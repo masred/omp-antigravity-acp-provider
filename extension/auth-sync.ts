@@ -91,9 +91,14 @@ export const secretService = createSecretService(runSecretTool);
 
 function emailFromTokenJson(raw: string): string | undefined {
   try {
-    const parsed = JSON.parse(raw) as { id_token?: unknown } | null;
-    const idToken = parsed?.id_token;
-    if (typeof idToken !== "string" || !idToken.includes(".")) return undefined;
+    const parsed = JSON.parse(raw) as { id_token?: unknown; id_token_email?: unknown; token?: { id_token?: unknown } } | null;
+    if (typeof parsed?.id_token_email === "string" && parsed.id_token_email.includes("@")) {
+      return parsed.id_token_email;
+    }
+    const idToken = typeof parsed?.id_token === "string" ? parsed.id_token
+      : typeof parsed?.token?.id_token === "string" ? parsed.token.id_token
+      : undefined;
+    if (!idToken || !idToken.includes(".")) return undefined;
     const claims = JSON.parse(Buffer.from(idToken.split(".")[1]!, "base64url").toString("utf8")) as { email?: unknown };
     return typeof claims.email === "string" && claims.email.includes("@") ? claims.email : undefined;
   } catch { return undefined; }
@@ -103,10 +108,13 @@ function emailFromTokenJson(raw: string): string | undefined {
 // Secret Service metadata when the file is absent. The keyring payload is
 // parsed only for the non-secret email claim.
 export async function antigravityAccountEmail(): Promise<string | undefined> {
-  try {
-    const fileEmail = emailFromTokenJson(fs.readFileSync(path.join(resolveAntigravityAcpDirectory(), "acp_token.json"), "utf8"));
-    if (fileEmail) return fileEmail;
-  } catch { /* no token file */ }
+  const directory = resolveAntigravityAcpDirectory();
+  for (const name of ["acp_token.json", "antigravity-oauth-token"]) {
+    try {
+      const fileEmail = emailFromTokenJson(fs.readFileSync(path.join(directory, name), "utf8"));
+      if (fileEmail) return fileEmail;
+    } catch { /* file missing or unreadable */ }
+  }
   return await secretService.accountEmail?.();
 }
 
